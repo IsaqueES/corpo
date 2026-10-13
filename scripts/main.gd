@@ -1,28 +1,35 @@
 extends Node
-## Menu inicial: hospedar (Cabeça) ou entrar (Braços).
+## Menu inicial: hospedar (Cabeça) ou entrar como Braços ou Pernas.
 
 const HeadView := preload("res://scripts/head_view.gd")
-const ArmsView := preload("res://scripts/arms_view.gd")
+const VIEWS := {
+	"arms": preload("res://scripts/arms_view.gd"),
+	"legs": preload("res://scripts/legs_view.gd"),
+}
 
 var _menu: Control
 var _status: Label
 var _ip: LineEdit
+var _role := "arms"
 
 
 func _ready() -> void:
 	multiplayer.connected_to_server.connect(_on_connected)
 	multiplayer.connection_failed.connect(_on_failed)
 	multiplayer.server_disconnected.connect(_on_server_gone)
+	Game.role_denied.connect(_on_role_denied)
 	_build_menu()
+	_status.text = Game.last_error
+	Game.last_error = ""
 
-	# Atalhos para testes: godot -- --host  /  godot -- --join
+	# Atalhos para testes: godot -- --host  /  godot -- --join --as=legs
 	var args := OS.get_cmdline_user_args()
 	if "--autotest" in args:
 		add_child(preload("res://scripts/autotest.gd").new())
 	if "--host" in args:
 		_on_host()
 	elif "--join" in args:
-		_on_join()
+		_on_join("legs" if "--as=legs" in args else "arms")
 
 
 func _build_menu() -> void:
@@ -51,10 +58,11 @@ func _build_menu() -> void:
 	_ip.placeholder_text = "IP de quem hospeda"
 	box.add_child(_ip)
 
-	var join_btn := Button.new()
-	join_btn.text = "Entrar e ser os BRAÇOS"
-	join_btn.pressed.connect(_on_join)
-	box.add_child(join_btn)
+	for role in VIEWS:
+		var join_btn := Button.new()
+		join_btn.text = "Entrar e ser os BRAÇOS" if role == "arms" else "Entrar e ser as PERNAS"
+		join_btn.pressed.connect(_on_join.bind(role))
+		box.add_child(join_btn)
 
 	_status = Label.new()
 	_status.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
@@ -70,7 +78,8 @@ func _on_host() -> void:
 	_start(HeadView)
 
 
-func _on_join() -> void:
+func _on_join(role: String) -> void:
+	_role = role
 	var err := Game.join_game(_ip.text.strip_edges())
 	if err != OK:
 		_status.text = "Erro ao conectar (%d)." % err
@@ -79,7 +88,14 @@ func _on_join() -> void:
 
 
 func _on_connected() -> void:
-	_start(ArmsView)
+	Game.request_role(_role)
+	_start(VIEWS[_role])
+
+
+func _on_role_denied() -> void:
+	Game.last_error = "Esse papel já tem alguém. Escolha outro."
+	Game.leave()
+	get_tree().reload_current_scene()
 
 
 func _on_failed() -> void:
